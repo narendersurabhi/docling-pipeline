@@ -1,0 +1,50 @@
+[project]
+name = "docling-pipeline"
+version = "0.1.0"
+description = "A batch document-processing pipeline built on Docling: convert, export, and chunk PDFs, Office files, HTML and images."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "MIT" }
+dependencies = [
+    "docling>=2.40",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.scripts]
+docling-pipeline = "docling_pipeline.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+# Always use a uv-managed interpreter in the project .venv, never a system Python.
+python-preference = "only-managed"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/docling_pipeline"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]
+addopts = "-m 'not slow'"
+markers = [
+    "spec(*ids): requirement IDs from specs/*/spec.md that this test verifies",
+    "slow: needs ML model downloads or network (run with: pytest -m slow)",
+]

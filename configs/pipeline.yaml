@@ -1,0 +1,27 @@
+# Example pipeline configuration. Every key is optional; CLI flags override these values.
+input_paths:
+  - data/input
+output_dir: output
+recursive: true
+exports: [markdown, json]   # markdown | json | html | text | doctags
+skip_existing: true         # re-runs only process new or previously failed documents
+raise_on_error: false       # true = stop the batch on the first failure
+
+conversion:
+  do_ocr: true
+  do_table_structure: true
+  table_mode: accurate      # accurate | fast
+  generate_picture_images: false
+  images_scale: 2.0
+  num_threads: 4
+  device: auto              # auto | cpu | mps | cuda | cuda:N | xpu
+  document_timeout: null    # seconds per document; null = no limit
+  max_num_pages: null
+  max_file_size_mb: null
+
+chunking:
+  enabled: true
+  chunker: hybrid           # hybrid (token-aware) | hierarchical (structure only)
+  tokenizer: sentence-transformers/all-MiniLM-L6-v2
+  max_tokens: 512
+  merge_peers: true

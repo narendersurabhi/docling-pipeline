@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    env:
+      HF_HUB_OFFLINE: "1" # NFR-002: the default suite must not download models
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install (uv-managed interpreter, locked deps)
+        run: uv sync --locked --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Spec traceability (NFR-003)
+        run: uv run python scripts/spec_coverage.py
+
+      - name: Tests
+        run: uv run pytest -q
