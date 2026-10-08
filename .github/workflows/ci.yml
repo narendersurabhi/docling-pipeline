@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  branch-policy:
+    # Constitution VIII: one feature, one branch (spec/NNN-name), merged only via PR.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check branch name, spec folder and tasks
+        env:
+          BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          git diff --name-only "origin/$BASE...HEAD" > changed.txt
+          python3 scripts/branch_policy.py "$BRANCH" $(cat changed.txt)
+
   test:
     runs-on: ubuntu-latest
     strategy:

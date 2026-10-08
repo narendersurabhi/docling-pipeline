@@ -36,3 +36,11 @@ Telemetry failures must never break the pipeline.
 ## VII. Fast, offline tests
 The default test suite must not download ML models or reach the network. Tests that need
 models are marked `slow` and are opt-in.
+
+## VIII. One feature, one branch
+Each spec is developed and tested on its own branch, `spec/NNN-short-name`, matching its
+`specs/NNN-short-name/` folder, and reaches `main` only through a pull request whose CI is
+green. `main` is protected: no direct pushes, no force-pushes. Bug fixes use `fix/…`,
+tooling `chore/…`, and docs-only changes `docs/…`. A feature branch can't merge while its
+`tasks.md` has unchecked tasks. The `branch-policy` CI job enforces the naming, the spec
+folder and the tasks.

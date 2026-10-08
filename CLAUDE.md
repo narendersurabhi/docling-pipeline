@@ -5,6 +5,11 @@ before changing behaviour.
 
 ## Rules
 
+- **One feature, one branch** (constitution VIII). Never commit to `main`. Start every spec
+  with `git switch -c spec/NNN-short-name main`, develop and test there, push, and open a PR.
+  Merge only after CI (including `branch-policy`) is green. Use `fix/`, `chore/`, `docs/` for
+  non-feature work.
+
 - **Spec before code.** Any behaviour change starts with an edit to `specs/NNN-*/spec.md`:
   add a new `FR-###`/`NFR-###` (never reuse or renumber an ID) or amend acceptance
   criteria. New features get a new folder copied from `specs/_template/`.

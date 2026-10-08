@@ -10,3 +10,4 @@ Tasks are listed in order. Each one names the requirement IDs it satisfies.
 
 ## Delivery
 - [ ] T003 Update README / docs (FR-XXX)
+- [ ] T004 PR from `spec/NNN-short-name` into `main`, CI green

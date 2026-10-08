@@ -192,6 +192,10 @@ print(summary.counts, summary.trace_id)  # {'success': 12, 'failure': 1} 9ae8…
 | [`plan.md`](specs/001-document-pipeline/plan.md) / [`tasks.md`](specs/001-document-pipeline/tasks.md) | Design and task breakdown, traced to requirement IDs |
 | [`specs/_template/`](specs/_template) | Starting point for the next feature spec |
 
+Each feature is developed and tested on its own `spec/NNN-short-name` branch and merged
+through a pull request once CI passes. `main` is protected
+([workflow](specs/README.md#workflow)).
+
 Tests declare which requirement they verify:
 
 ```python
