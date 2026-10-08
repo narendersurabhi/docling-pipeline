@@ -51,6 +51,7 @@ inputs ──► sources.discover ──► DocumentPipeline.process (per source
 ## Risks
 
 - Docling's API moves quickly. The minimum version is pinned in `pyproject.toml`, the exact
-  version in `uv.lock`, and CI exercises the real library (no mocks for HTML/Markdown paths).
+  version in `uv.lock`, and the pre-push test suite exercises the real library (no mocks for
+  HTML/Markdown paths).
 - The first PDF run downloads layout/table/OCR models (~hundreds of MB). The README documents
   prefetching with `docling-tools models download`.

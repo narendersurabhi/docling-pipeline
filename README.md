@@ -37,6 +37,7 @@ Requires [uv](https://docs.astral.sh/uv/). uv installs the right Python into an 
 git clone https://github.com/narendersurabhi/docling-pipeline.git
 cd docling-pipeline
 uv sync
+uv run pre-commit install   # git hooks: the project's quality gates (no hosted CI)
 ```
 
 Convert a folder, using the example config:
@@ -191,6 +192,18 @@ print(summary.counts, summary.trace_id)  # {'success': 12, 'failure': 1} 9ae8…
 | [`specs/003-metrics/spec.md`](specs/003-metrics/spec.md) | Metrics requirements `FR-016`…`FR-019` |
 | [`plan.md`](specs/001-document-pipeline/plan.md) / [`tasks.md`](specs/001-document-pipeline/tasks.md) | Design and task breakdown, traced to requirement IDs |
 | [`specs/_template/`](specs/_template) | Starting point for the next feature spec |
+
+Each feature is developed and tested on its own `spec/NNN-short-name` branch and merged
+through a pull request. `main` is protected ([workflow](specs/README.md#workflow)). There is
+no hosted CI: quality gates run locally as git hooks. Install them once per clone:
+
+```bash
+uv run pre-commit install
+```
+
+On every commit, the hooks check the branch policy, ruff lint/format, the lockfile, and spec
+traceability. On every push, they run the full offline test suite.
+[Details](specs/README.md#local-quality-gates-instead-of-hosted-ci).
 
 Tests declare which requirement they verify:
 

@@ -1,0 +1,55 @@
+# Local quality gates. They replace GitHub CI (constitution VIII).
+# Install once per clone:
+#   uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+# Every hook is local and runs through `uv run`, so it uses the locked .venv. Nothing is
+# fetched from third-party hook repos.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+fail_fast: true
+
+repos:
+  - repo: local
+    hooks:
+      # ---- every commit (fast) ----------------------------------------------------------
+      - id: branch-policy
+        name: branch policy (no commits to main, branch naming, spec folder)
+        entry: uv run python scripts/branch_policy.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+
+      - id: uv-lock
+        name: uv.lock in sync with pyproject.toml
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+      - id: spec-traceability
+        name: spec traceability (every requirement has a test)
+        entry: uv run python scripts/spec_coverage.py
+        language: system
+        files: ^(specs/|tests/|scripts/spec_coverage\.py)
+        pass_filenames: false
+
+      # ---- every push (full suite, ~45s) ---------------------------------------------------
+      - id: pytest
+        name: pytest (offline suite)
+        entry: env HF_HUB_OFFLINE=1 uv run pytest -q
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

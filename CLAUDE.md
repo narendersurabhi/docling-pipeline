@@ -5,6 +5,13 @@ before changing behaviour.
 
 ## Rules
 
+- **One feature, one branch** (constitution VIII). Never commit to `main`. Start every spec
+  with `git switch -c spec/NNN-short-name main`, develop and test there, push, and open a PR.
+  Use `fix/`, `chore/`, `docs/` for non-feature work.
+- **No hosted CI. Git hooks are the gate.** Make sure they're installed
+  (`uv run pre-commit install`). Never use `--no-verify`. Before opening a PR, run
+  `uv run python scripts/branch_policy.py --ready`.
+
 - **Spec before code.** Any behaviour change starts with an edit to `specs/NNN-*/spec.md`:
   add a new `FR-###`/`NFR-###` (never reuse or renumber an ID) or amend acceptance
   criteria. New features get a new folder copied from `specs/_template/`.
@@ -30,6 +37,8 @@ uv run pytest                             # fast suite + traceability gate
 uv run pytest -m slow                     # model-dependent tests
 uv run python scripts/spec_coverage.py    # requirement -> test matrix
 uv run ruff check . && uv run ruff format --check .
+uv run pre-commit install                 # once per clone: commit + push hooks
+uv run pre-commit run --all-files --hook-stage pre-push   # all gates on demand
 ```
 
 ## Layout
