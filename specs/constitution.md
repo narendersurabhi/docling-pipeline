@@ -27,8 +27,9 @@ The project runs in a uv-managed virtual environment with a uv-managed interpret
 (`python-preference = "only-managed"`). `uv.lock` is committed.
 
 ## VI. Observable from day one
-Every unit of work emits OpenTelemetry traces with a span per meaningful stage, and logs are
-correlated with those spans (`trace_id`/`span_id`). New features extend the span tree and
+Every unit of work emits OpenTelemetry traces with a span per meaningful stage, logs
+correlated with those spans (`trace_id`/`span_id`), and low-cardinality metrics (counts,
+durations, errors) linked to traces through exemplars. New features extend the span tree and
 the logs in the same PR that adds the behaviour, and tests assert on the emitted telemetry.
 Telemetry failures must never break the pipeline.
 

@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+from opentelemetry.sdk.metrics import Counter, Histogram
+from opentelemetry.sdk.metrics.export import AggregationTemporality, InMemoryMetricReader
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from docling_pipeline.config import ObservabilityConfig
@@ -14,6 +16,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # session shares in-memory exporters (NFR-005). Each test starts with them empty.
 SPANS = InMemorySpanExporter()
 LOGS = InMemoryLogRecordExporter()
+# Delta temporality: each collection returns only what was recorded since the previous one.
+METRICS = InMemoryMetricReader(
+    preferred_temporality={
+        Counter: AggregationTemporality.DELTA,
+        Histogram: AggregationTemporality.DELTA,
+    }
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -23,6 +32,7 @@ def _telemetry():
         console_level=None,
         span_exporter=SPANS,
         log_exporter=LOGS,
+        metric_reader=METRICS,
         batch=False,
     )
     yield tel
@@ -39,6 +49,24 @@ def spans() -> InMemorySpanExporter:
 def logs() -> InMemoryLogRecordExporter:
     LOGS.clear()
     return LOGS
+
+
+@pytest.fixture
+def collect_metrics():
+    """Returns a function giving {metric name: Metric} recorded since the last call
+    (or since the fixture was requested)."""
+    METRICS.get_metrics_data()  # drain anything recorded by earlier tests
+
+    def collect() -> dict:
+        data = METRICS.get_metrics_data()
+        found: dict = {}
+        for rm in data.resource_metrics if data else []:
+            for sm in rm.scope_metrics:
+                for metric in sm.metrics:
+                    found[metric.name] = metric
+        return found
+
+    return collect
 
 
 @pytest.fixture

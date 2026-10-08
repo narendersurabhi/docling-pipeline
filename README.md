@@ -24,8 +24,9 @@ inputs ─► discover ─► Docling convert ─► export (md/json/html/txt/do
 - **Built for batches**: one bad file doesn't kill the run, `skip_existing` makes re-runs
   incremental and retries only the failures, and `manifest.json` gives you an audit trail.
 - **Observable from day one**: OpenTelemetry traces with a span per run, document and stage,
-  plus logs correlated by `trace_id`/`span_id` (Docling's internal logs included). Exports to
-  the console or any OTLP backend.
+  logs correlated by `trace_id`/`span_id` (Docling's internal logs included), and metrics for
+  throughput, latency and errors, with exemplars linking back to traces. Exports to the
+  console or any OTLP backend.
 - **Reproducible**: a uv-managed interpreter and a committed `uv.lock`.
 
 ## Quick start
@@ -103,7 +104,7 @@ and its default. CLI flags override the config file:
 | `--device` | `auto`, `cpu`, `mps`, `cuda`, `cuda:N`, `xpu` |
 | `--chunk/--no-chunk`, `--chunker`, `--max-tokens` | Chunking controls |
 | `--skip-existing` | Skip documents that already succeeded |
-| `--telemetry` | `none`, `console`, `otlp` (traces and logs) |
+| `--telemetry` | `none`, `console`, `otlp` (traces, logs and metrics) |
 | `--otlp-endpoint` | OTLP/HTTP base URL, e.g. `http://localhost:4318` |
 
 Exit code is `0` if every document succeeded, `1` if any failed, and `2` on usage errors.
@@ -121,12 +122,36 @@ pipeline.run                       pipeline.documents.{total,succeeded,failed,sk
     └── document.chunk             chunker.type, chunks.count
 ```
 
+**Metrics** (Prometheus names after OTLP translation). Labels are low-cardinality only:
+`doc_status`, `doc_format`, `stage`, `outcome`, `chunker_type`, `error_type`.
+
+| Metric | What it tells you |
+|---|---|
+| `pipeline_documents_total` | throughput and failure rate by status and format |
+| `pipeline_document_duration_seconds` | end-to-end latency per document (histogram) |
+| `pipeline_stage_duration_seconds` | where the time goes: `convert` / `export` / `chunk` |
+| `pipeline_errors_total` | failures by `stage` and `error_type` |
+| `pipeline_pages_total`, `pipeline_chunks_total` | volume produced |
+| `pipeline_chunk_tokens` | chunk-size distribution (hybrid chunker), for tuning `max_tokens` |
+| `pipeline_runs_total`, `pipeline_run_duration_seconds` | runs by `outcome` (`completed` / `aborted`) |
+
+For example:
+
+```promql
+sum(rate(pipeline_documents_total{doc_status="failure"}[5m])) / sum(rate(pipeline_documents_total[5m]))
+histogram_quantile(0.95, sum by (le, doc_format) (rate(pipeline_stage_duration_seconds_bucket{stage="convert"}[5m])))
+```
+
+Duration histograms carry **exemplars** (`trace_id`/`span_id`), so a latency spike in
+Grafana links straight to the trace of the slow document.
+
 Every log line emitted inside a span carries that span's IDs, both on the console
 (`… [trace_id=… span_id=…]`) and in the exported OpenTelemetry log record. `manifest.json`
 records the run's `trace_id`, each `meta.json` records its document's `trace_id`/`span_id`, and
 the CLI prints the `trace_id` at the end, so you can go from any output straight to its trace.
 
-To view traces and logs locally (Grafana + Tempo + Loki in one container):
+To view traces, logs and metrics locally (Grafana + Tempo + Loki + Prometheus in one
+container):
 
 ```bash
 docker compose -f docker-compose.observability.yml up -d
@@ -137,11 +162,12 @@ uv run docling-pipeline run data/input --telemetry otlp --otlp-endpoint http://l
 ```
 
 Then open http://localhost:3000 and go to **Explore**. Use **Tempo** to search traces by
-`trace_id`, and **Loki** with `{service_name="docling-pipeline"}` for logs.
+`trace_id`, **Loki** with `{service_name="docling-pipeline"}` for logs, and **Prometheus**
+for `pipeline_*` metrics.
 
 To print spans and logs to the terminal without a backend, use `--telemetry console`. The
-standard `OTEL_TRACES_EXPORTER`, `OTEL_LOGS_EXPORTER`, and `OTEL_EXPORTER_OTLP_ENDPOINT` env vars
-work too. See the `observability:` section of [`configs/pipeline.yaml`](configs/pipeline.yaml).
+standard `OTEL_TRACES_EXPORTER`, `OTEL_LOGS_EXPORTER`, `OTEL_METRICS_EXPORTER`, and
+`OTEL_EXPORTER_OTLP_ENDPOINT` env vars work too. See the `observability:` section of [`configs/pipeline.yaml`](configs/pipeline.yaml).
 An unreachable collector never fails a run.
 
 ## Use as a library
@@ -162,6 +188,7 @@ print(summary.counts, summary.trace_id)  # {'success': 12, 'failure': 1} 9ae8…
 | [`specs/constitution.md`](specs/constitution.md) | Project principles every change is checked against |
 | [`specs/001-document-pipeline/spec.md`](specs/001-document-pipeline/spec.md) | Pipeline requirements `FR-001`…`FR-010`, `NFR-001`…`NFR-003` |
 | [`specs/002-observability/spec.md`](specs/002-observability/spec.md) | Tracing and logging requirements `FR-011`…`FR-015`, `NFR-004`…`NFR-005` |
+| [`specs/003-metrics/spec.md`](specs/003-metrics/spec.md) | Metrics requirements `FR-016`…`FR-019` |
 | [`plan.md`](specs/001-document-pipeline/plan.md) / [`tasks.md`](specs/001-document-pipeline/tasks.md) | Design and task breakdown, traced to requirement IDs |
 | [`specs/_template/`](specs/_template) | Starting point for the next feature spec |
 

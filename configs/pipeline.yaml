@@ -34,6 +34,8 @@ observability:             # spec 002: OpenTelemetry traces, spans and correlate
   # $OTEL_LOGS_EXPORTER, default none). Setting them here overrides the env vars.
   # traces_exporter: otlp   # none | console | otlp
   # logs_exporter: otlp     # none | console | otlp
+  # metrics_exporter: otlp  # none | console | otlp   ($OTEL_METRICS_EXPORTER)
+  metric_export_interval_s: 60   # a final export always happens at shutdown
   otlp_endpoint: null       # e.g. http://localhost:4318; null = $OTEL_EXPORTER_OTLP_ENDPOINT
   otlp_timeout_s: 10
   sample_ratio: 1.0

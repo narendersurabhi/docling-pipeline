@@ -62,7 +62,7 @@ def run(
     ] = None,
     telemetry: Annotated[
         TelemetryExporter | None,
-        typer.Option(help="Exporter for both traces and logs."),
+        typer.Option(help="Exporter for traces, logs and metrics."),
     ] = None,
     otlp_endpoint: Annotated[
         str | None, typer.Option(help="OTLP/HTTP base URL, e.g. http://localhost:4318.")
@@ -93,6 +93,7 @@ def run(
     if telemetry is not None:
         cfg.observability.traces_exporter = telemetry
         cfg.observability.logs_exporter = telemetry
+        cfg.observability.metrics_exporter = telemetry
     if otlp_endpoint is not None:
         cfg.observability.otlp_endpoint = otlp_endpoint
     cfg = PipelineConfig.model_validate(cfg.model_dump())

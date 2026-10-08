@@ -69,6 +69,10 @@ class ObservabilityConfig(BaseModel):
     logs_exporter: TelemetryExporter = Field(
         default_factory=lambda: _exporter_from_env("OTEL_LOGS_EXPORTER")
     )
+    metrics_exporter: TelemetryExporter = Field(
+        default_factory=lambda: _exporter_from_env("OTEL_METRICS_EXPORTER")
+    )
+    metric_export_interval_s: float = Field(60.0, gt=0)
     otlp_endpoint: str | None = None
     otlp_timeout_s: float = Field(10.0, gt=0)
     sample_ratio: float = Field(1.0, ge=0.0, le=1.0)

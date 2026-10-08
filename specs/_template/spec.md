@@ -26,8 +26,9 @@
 - [NEEDS CLARIFICATION: <open question>]
 
 ## Observability
-<!-- Required (constitution VI). Which spans does this feature add or change, what are their
-     attributes, and what logs does it emit? Each needs an FR with a test. -->
+<!-- Required (constitution VI). Which spans does this feature add or change (attributes)?
+     What logs does it emit? Which metrics (name, kind, unit, low-cardinality attributes)?
+     Each needs an FR with a test. -->
 
 ## Non-functional requirements
 

@@ -281,7 +281,7 @@ def test_invalid_observability_config_rejected(kwargs):
 @pytest.mark.spec("FR-014")
 def test_sample_ratio_zero_records_nothing():
     exporter = InMemorySpanExporter()
-    tp, _ = build_providers(
+    tp, _, _ = build_providers(
         ObservabilityConfig(sample_ratio=0.0), span_exporter=exporter, batch=False
     )
     with tp.get_tracer("t").start_as_current_span("s") as span:
@@ -303,7 +303,7 @@ def test_disabled_installs_no_otel_handler():
     assert root.handlers == before
 
 
-@pytest.mark.spec("FR-014")
+@pytest.mark.spec("FR-014", "FR-019")
 def test_cli_telemetry_flags_set_config(corpus: Path, tmp_path: Path, monkeypatch):
     seen = {}
 
@@ -322,7 +322,9 @@ def test_cli_telemetry_flags_set_config(corpus: Path, tmp_path: Path, monkeypatc
     )  # fmt: skip
     assert result.exit_code == 0, result.output
     cfg = seen["cfg"]
-    assert cfg.traces_exporter is cfg.logs_exporter is TelemetryExporter.OTLP
+    assert (
+        cfg.traces_exporter is cfg.logs_exporter is cfg.metrics_exporter is TelemetryExporter.OTLP
+    )
     assert cfg.otlp_endpoint == "http://collector:4318"
 
 
@@ -346,9 +348,11 @@ def test_setup_reuses_existing_providers_and_shutdown_only_flushes(_telemetry):
 @pytest.mark.spec("FR-015")
 def test_owned_providers_are_shut_down():
     exporter = InMemorySpanExporter()
-    tp, lp = build_providers(ObservabilityConfig(), span_exporter=exporter, batch=True)
+    tp, lp, mp = build_providers(ObservabilityConfig(), span_exporter=exporter, batch=True)
     tp.get_tracer("t").start_span("pending").end()  # sits in the batch queue
-    Telemetry(tracer_provider=tp, logger_provider=lp, owns_providers=True).shutdown()
+    Telemetry(
+        tracer_provider=tp, logger_provider=lp, meter_provider=mp, owns_providers=True
+    ).shutdown()
     assert [s.name for s in exporter.get_finished_spans()] == ["pending"]  # flushed
     assert exporter._stopped
 

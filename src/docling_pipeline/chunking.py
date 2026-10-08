@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -55,11 +55,19 @@ def iter_chunks(
         yield record
 
 
-def write_chunks(doc: DoclingDocument, chunker: BaseChunker, source: str, path: Path) -> int:
+def write_chunks(
+    doc: DoclingDocument,
+    chunker: BaseChunker,
+    source: str,
+    path: Path,
+    on_chunk: Callable[[dict[str, Any]], None] | None = None,
+) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
     with path.open("w", encoding="utf-8") as f:
         for record in iter_chunks(doc, chunker, source):
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             count += 1
+            if on_chunk:
+                on_chunk(record)
     return count

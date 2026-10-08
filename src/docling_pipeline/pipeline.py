@@ -6,10 +6,12 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 from docling.datamodel.base_models import ConversionStatus
 from docling.document_converter import DocumentConverter
@@ -19,8 +21,8 @@ from docling_pipeline.chunking import build_chunker, write_chunks
 from docling_pipeline.config import PipelineConfig
 from docling_pipeline.converter import build_converter
 from docling_pipeline.exporters import export_document
-from docling_pipeline.observability import current_ids, tracer
-from docling_pipeline.sources import Source, discover
+from docling_pipeline.observability import current_ids, instruments, tracer
+from docling_pipeline.sources import SUPPORTED_EXTENSIONS, Source, discover
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,37 @@ MANIFEST_FILE = "manifest.json"
 _OK = {ConversionStatus.SUCCESS.value, ConversionStatus.PARTIAL_SUCCESS.value}
 SKIPPED = ConversionStatus.SKIPPED.value
 FAILURE = ConversionStatus.FAILURE.value
+
+
+def doc_format(source: Source) -> str:
+    """Low-cardinality format label for metrics (FR-016): a supported extension or 'unknown'."""
+    path = PurePosixPath(urlparse(source.location).path) if source.is_url else Path(source.location)
+    suffix = path.suffix.lower()
+    return suffix.lstrip(".") if suffix in SUPPORTED_EXTENSIONS else "unknown"
+
+
+def _is_error(span: Span) -> bool:
+    status = getattr(span, "status", None)  # non-recording spans have no status
+    return status is not None and status.status_code is StatusCode.ERROR
+
+
+@contextmanager
+def _stage(name: str, fmt: str, attributes: dict | None = None) -> Iterator[Span]:
+    """A `document.<name>` span whose duration is also recorded as a metric (FR-016).
+
+    The histogram is recorded while the span is current, so exemplars point at it (FR-018).
+    """
+    with tracer.start_as_current_span(f"document.{name}", attributes=attributes) as span:
+        start = time.perf_counter()
+        outcome = "error"
+        try:
+            yield span
+            outcome = "error" if _is_error(span) else "ok"
+        finally:
+            instruments.stage_duration.record(
+                time.perf_counter() - start,
+                {"stage": name, "outcome": outcome, "doc.format": fmt},
+            )
 
 
 @dataclass
@@ -111,7 +144,8 @@ class DocumentPipeline:
                 "doc.is_url": source.is_url,
             },
         ) as span:
-            result, exc = self._process(source, span)
+            result, exc, failed_stage = self._process(source, span)
+            self._record_document_metrics(source, result, exc, failed_stage)
             span.set_attributes(
                 {
                     "doc.status": result.status,
@@ -138,12 +172,32 @@ class DocumentPipeline:
                 )
             return result
 
-    def _process(self, source: Source, span: Span) -> tuple[DocumentResult, Exception | None]:
+    def _record_document_metrics(
+        self, source: Source, result: DocumentResult, exc: Exception | None, failed_stage: str
+    ) -> None:
+        fmt = doc_format(source)
+        attrs = {"doc.status": result.status, "doc.format": fmt}
+        instruments.documents.add(1, attrs)
+        if result.status == SKIPPED:
+            return
+        instruments.document_duration.record(result.seconds, attrs)
+        if result.ok:
+            instruments.pages.add(result.num_pages, {"doc.format": fmt})
+            if result.num_chunks:
+                instruments.chunks.add(
+                    result.num_chunks, {"chunker.type": self.config.chunking.chunker.value}
+                )
+        else:
+            error_type = type(exc).__name__ if exc else "ConversionFailed"
+            instruments.errors.add(1, {"stage": failed_stage, "error.type": error_type})
+
+    def _process(self, source: Source, span: Span) -> tuple[DocumentResult, Exception | None, str]:
+        """Returns (result, exception if one was caught, stage that failed)."""
         out_dir = Path(self.config.output_dir) / source.name
         if (done := self._already_done(out_dir)) is not None:
             done.status = SKIPPED
             span.add_event("skipped", {"reason": "existing successful meta.json"})
-            return done, None
+            return done, None, ""
 
         trace_id, span_id = current_ids()
         result = DocumentResult(
@@ -155,10 +209,13 @@ class DocumentPipeline:
             span_id=span_id,
         )
         conv = self.config.conversion
+        fmt = doc_format(source)
+        chunker_type = self.config.chunking.chunker.value
         error: Exception | None = None
+        stage = "convert"
         start = time.perf_counter()
         try:
-            with tracer.start_as_current_span("document.convert") as convert_span:
+            with _stage("convert", fmt) as convert_span:
                 res = self.converter.convert(
                     source.location,
                     raises_on_error=False,
@@ -180,18 +237,22 @@ class DocumentPipeline:
 
             if result.ok:
                 doc = res.document
-                with tracer.start_as_current_span(
-                    "document.export",
-                    attributes={"export.formats": [f.value for f in self.config.exports]},
+                stage = "export"
+                with _stage(
+                    "export", fmt, {"export.formats": [f.value for f in self.config.exports]}
                 ):
                     result.files = export_document(doc, out_dir, self.config.exports)
                 if self.config.chunking.enabled:
-                    with tracer.start_as_current_span(
-                        "document.chunk",
-                        attributes={"chunker.type": self.config.chunking.chunker.value},
-                    ) as chunk_span:
+                    stage = "chunk"
+                    with _stage("chunk", fmt, {"chunker.type": chunker_type}) as chunk_span:
                         path = out_dir / CHUNKS_FILE
-                        result.num_chunks = write_chunks(doc, self.chunker, source.location, path)
+                        result.num_chunks = write_chunks(
+                            doc,
+                            self.chunker,
+                            source.location,
+                            path,
+                            on_chunk=lambda r: _record_chunk_tokens(r, chunker_type),
+                        )
                         result.files["chunks"] = str(path)
                         chunk_span.set_attribute("chunks.count", result.num_chunks)
         except Exception as exc:  # one bad document must not stop the batch (FR-006)
@@ -208,54 +269,69 @@ class DocumentPipeline:
 
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / META_FILE).write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
-        return result, error
+        return result, error, stage
 
     def run(self, on_result: Callable[[DocumentResult], None] | None = None) -> RunSummary:
+        with tracer.start_as_current_span("pipeline.run") as span:
+            start = time.perf_counter()
+            outcome = "aborted"
+            try:
+                summary = self._run(span, on_result)
+                outcome = "completed"
+                return summary
+            finally:
+                attrs = {"outcome": outcome}
+                instruments.runs.add(1, attrs)
+                instruments.run_duration.record(time.perf_counter() - start, attrs)
+
+    def _run(self, span: Span, on_result: Callable[[DocumentResult], None] | None) -> RunSummary:
         cfg = self.config
-        with tracer.start_as_current_span(
-            "pipeline.run",
-            attributes={
+        span.set_attributes(
+            {
                 "pipeline.inputs": list(cfg.input_paths),
                 "pipeline.output_dir": str(cfg.output_dir),
                 "pipeline.exports": [f.value for f in cfg.exports],
                 "pipeline.chunker": cfg.chunking.chunker.value if cfg.chunking.enabled else "none",
-            },
-        ) as span:
-            trace_id, _ = current_ids()
-            started = datetime.now(UTC).isoformat()
+            }
+        )
+        trace_id, _ = current_ids()
+        started = datetime.now(UTC).isoformat()
 
-            with tracer.start_as_current_span("pipeline.discover") as discover_span:
-                sources = discover(cfg.input_paths, recursive=cfg.recursive)
-                discover_span.set_attribute("discover.sources", len(sources))
-            log.info("pipeline run started: %d document(s)", len(sources))
+        with tracer.start_as_current_span("pipeline.discover") as discover_span:
+            sources = discover(cfg.input_paths, recursive=cfg.recursive)
+            discover_span.set_attribute("discover.sources", len(sources))
+        log.info("pipeline run started: %d document(s)", len(sources))
 
-            results = []
-            for source in sources:
-                result = self.process(source)
-                results.append(result)
-                if on_result:
-                    on_result(result)
+        results = []
+        for source in sources:
+            result = self.process(source)
+            results.append(result)
+            if on_result:
+                on_result(result)
 
-            summary = RunSummary(
-                started_at=started,
-                finished_at=datetime.now(UTC).isoformat(),
-                output_dir=str(cfg.output_dir),
-                results=results,
-                trace_id=trace_id,
-            )
-            counts = summary.counts
-            span.set_attributes(
-                {
-                    "pipeline.documents.total": len(results),
-                    "pipeline.documents.succeeded": sum(r.ok for r in results),
-                    "pipeline.documents.failed": counts.get(FAILURE, 0),
-                    "pipeline.documents.skipped": counts.get(SKIPPED, 0),
-                }
-            )
-            out = Path(cfg.output_dir)
-            out.mkdir(parents=True, exist_ok=True)
-            (out / MANIFEST_FILE).write_text(
-                json.dumps(summary.to_dict(), indent=2), encoding="utf-8"
-            )
-            log.info("pipeline run finished: %s", counts)
-            return summary
+        summary = RunSummary(
+            started_at=started,
+            finished_at=datetime.now(UTC).isoformat(),
+            output_dir=str(cfg.output_dir),
+            results=results,
+            trace_id=trace_id,
+        )
+        counts = summary.counts
+        span.set_attributes(
+            {
+                "pipeline.documents.total": len(results),
+                "pipeline.documents.succeeded": sum(r.ok for r in results),
+                "pipeline.documents.failed": counts.get(FAILURE, 0),
+                "pipeline.documents.skipped": counts.get(SKIPPED, 0),
+            }
+        )
+        out = Path(cfg.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / MANIFEST_FILE).write_text(json.dumps(summary.to_dict(), indent=2), encoding="utf-8")
+        log.info("pipeline run finished: %s", counts)
+        return summary
+
+
+def _record_chunk_tokens(record: dict, chunker_type: str) -> None:
+    if "num_tokens" in record:
+        instruments.chunk_tokens.record(record["num_tokens"], {"chunker.type": chunker_type})

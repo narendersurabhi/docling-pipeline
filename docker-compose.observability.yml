@@ -1,7 +1,8 @@
-# Local observability backend: OTLP collector + Tempo (traces) + Loki (logs) + Grafana UI.
+# Local observability backend: OTLP collector + Tempo (traces) + Loki (logs)
+# + Prometheus (metrics, with exemplars) + Grafana UI.
 #   docker compose -f docker-compose.observability.yml up -d
 #   uv run docling-pipeline run data/input --telemetry otlp --otlp-endpoint http://localhost:4318
-#   open http://localhost:3000  (Explore -> Tempo for traces, Loki for logs)
+#   open http://localhost:3000  (Explore -> Tempo / Loki / Prometheus)
 services:
   otel-lgtm:
     image: grafana/otel-lgtm:0.33.1

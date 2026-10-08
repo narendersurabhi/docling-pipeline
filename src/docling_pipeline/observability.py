@@ -1,12 +1,13 @@
-"""OpenTelemetry setup: traces, spans, and logs correlated with them (spec 002)."""
+"""OpenTelemetry setup: traces, spans, correlated logs (spec 002) and metrics (spec 003)."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 
-from opentelemetry import _logs, trace
+from opentelemetry import _logs, metrics, trace
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.sdk._logs import LoggerProvider
@@ -15,6 +16,13 @@ from opentelemetry.sdk._logs.export import (
     ConsoleLogRecordExporter,
     LogRecordExporter,
     SimpleLogRecordProcessor,
+)
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import (
+    ConsoleMetricExporter,
+    MetricExporter,
+    MetricReader,
+    PeriodicExportingMetricReader,
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -33,6 +41,62 @@ TRACER_NAME = "docling_pipeline"
 CONSOLE_FORMAT = "%(message)s [trace_id=%(trace_id)s span_id=%(span_id)s]"
 
 tracer = trace.get_tracer(TRACER_NAME, __version__)
+meter = metrics.get_meter(TRACER_NAME, __version__)
+
+SECONDS_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600]
+TOKEN_BUCKETS = [32, 64, 128, 256, 384, 512, 768, 1024, 2048]
+
+# FR-017: the only attribute keys metrics may carry (bounded cardinality).
+METRIC_ATTRIBUTE_KEYS = frozenset(
+    {"outcome", "doc.status", "doc.format", "stage", "chunker.type", "error.type"}
+)
+
+
+class PipelineMetrics:
+    """Instruments from FR-016. Created on the global (proxy) meter, so they bind to
+    whichever MeterProvider is installed later."""
+
+    def __init__(self, m: metrics.Meter):
+        self.runs = m.create_counter("pipeline.runs", unit="{run}", description="Pipeline runs")
+        self.run_duration = m.create_histogram(
+            "pipeline.run.duration",
+            unit="s",
+            description="Wall time of a pipeline run",
+            explicit_bucket_boundaries_advisory=SECONDS_BUCKETS,
+        )
+        self.documents = m.create_counter(
+            "pipeline.documents", unit="{document}", description="Documents by final status"
+        )
+        self.document_duration = m.create_histogram(
+            "pipeline.document.duration",
+            unit="s",
+            description="Time to process one document (convert + export + chunk)",
+            explicit_bucket_boundaries_advisory=SECONDS_BUCKETS,
+        )
+        self.stage_duration = m.create_histogram(
+            "pipeline.stage.duration",
+            unit="s",
+            description="Time spent in one pipeline stage for one document",
+            explicit_bucket_boundaries_advisory=SECONDS_BUCKETS,
+        )
+        self.pages = m.create_counter(
+            "pipeline.pages", unit="{page}", description="Pages converted"
+        )
+        self.chunks = m.create_counter(
+            "pipeline.chunks", unit="{chunk}", description="Chunks written"
+        )
+        self.chunk_tokens = m.create_histogram(
+            "pipeline.chunk.tokens",
+            unit="{token}",
+            description="Tokens per chunk (hybrid chunker)",
+            explicit_bucket_boundaries_advisory=TOKEN_BUCKETS,
+        )
+        self.errors = m.create_counter(
+            "pipeline.errors", unit="{error}", description="Failed documents by stage and type"
+        )
+
+
+instruments = PipelineMetrics(meter)
 
 
 def format_trace_id(trace_id: int) -> str:
@@ -92,13 +156,22 @@ def build_log_exporter(cfg: ObservabilityConfig) -> LogRecordExporter | None:
     return None
 
 
+def build_metric_exporter(cfg: ObservabilityConfig) -> MetricExporter | None:
+    if cfg.metrics_exporter is TelemetryExporter.CONSOLE:
+        return ConsoleMetricExporter()
+    if cfg.metrics_exporter is TelemetryExporter.OTLP:
+        return OTLPMetricExporter(endpoint=_otlp_url(cfg, "metrics"), timeout=cfg.otlp_timeout_s)
+    return None
+
+
 def build_providers(
     cfg: ObservabilityConfig,
     span_exporter: SpanExporter | None = None,
     log_exporter: LogRecordExporter | None = None,
+    metric_reader: MetricReader | None = None,
     batch: bool = True,
-) -> tuple[TracerProvider, LoggerProvider]:
-    """Build (not install) providers. Explicit exporters override the configured ones."""
+) -> tuple[TracerProvider, LoggerProvider, MeterProvider]:
+    """Build (not install) providers. Explicit exporters/readers override the configured ones."""
     resource = build_resource(cfg)
     tracer_provider = TracerProvider(
         resource=resource, sampler=ParentBased(TraceIdRatioBased(cfg.sample_ratio))
@@ -115,7 +188,20 @@ def build_providers(
         processor = BatchLogRecordProcessor if batch else SimpleLogRecordProcessor
         logger_provider.add_log_record_processor(processor(log_exporter))
 
-    return tracer_provider, logger_provider
+    if metric_reader is None and (metric_exporter := build_metric_exporter(cfg)) is not None:
+        metric_reader = PeriodicExportingMetricReader(
+            metric_exporter,
+            export_interval_millis=cfg.metric_export_interval_s * 1000,
+            export_timeout_millis=cfg.otlp_timeout_s * 1000,
+        )
+    meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[metric_reader] if metric_reader is not None else [],
+        # Shutdown is owned by Telemetry.shutdown(); no extra atexit hook.
+        shutdown_on_exit=False,
+    )
+
+    return tracer_provider, logger_provider, meter_provider
 
 
 @dataclass
@@ -124,6 +210,7 @@ class Telemetry:
 
     tracer_provider: TracerProvider | None = None
     logger_provider: LoggerProvider | None = None
+    meter_provider: MeterProvider | None = None
     owns_providers: bool = False
     handlers: list[logging.Handler] = field(default_factory=list)
 
@@ -133,7 +220,8 @@ class Telemetry:
             root.removeHandler(handler)
             handler.close()
         self.handlers.clear()
-        for provider in (self.tracer_provider, self.logger_provider):
+        # MeterProvider.shutdown() runs a final collection, so short runs still export (FR-019).
+        for provider in (self.tracer_provider, self.logger_provider, self.meter_provider):
             if provider is None:
                 continue
             try:
@@ -145,10 +233,15 @@ class Telemetry:
                 logging.getLogger(__name__).debug("telemetry shutdown failed", exc_info=True)
 
 
-def _installed_sdk_providers() -> tuple[TracerProvider, LoggerProvider] | None:
+def _installed_sdk_providers() -> tuple[TracerProvider, LoggerProvider, MeterProvider] | None:
     tp, lp = trace.get_tracer_provider(), _logs.get_logger_provider()
-    if isinstance(tp, TracerProvider) and isinstance(lp, LoggerProvider):
-        return tp, lp
+    mp = metrics.get_meter_provider()
+    if (
+        isinstance(tp, TracerProvider)
+        and isinstance(lp, LoggerProvider)
+        and isinstance(mp, MeterProvider)
+    ):
+        return tp, lp, mp
     return None
 
 
@@ -158,9 +251,10 @@ def setup_telemetry(
     console_handler: logging.Handler | None = None,
     span_exporter: SpanExporter | None = None,
     log_exporter: LogRecordExporter | None = None,
+    metric_reader: MetricReader | None = None,
     batch: bool = True,
 ) -> Telemetry:
-    """Install global tracer/logger providers and logging handlers.
+    """Install global tracer/logger/meter providers and logging handlers.
 
     Reuses providers already installed in this process (FR-015), since OpenTelemetry
     only allows the global providers to be set once.
@@ -180,13 +274,16 @@ def setup_telemetry(
     if cfg.enabled:
         existing = _installed_sdk_providers()
         if existing:
-            telemetry.tracer_provider, telemetry.logger_provider = existing
+            tp, lp, mp = existing
         else:
-            tp, lp = build_providers(cfg, span_exporter, log_exporter, batch=batch)
+            tp, lp, mp = build_providers(
+                cfg, span_exporter, log_exporter, metric_reader, batch=batch
+            )
             trace.set_tracer_provider(tp)
             _logs.set_logger_provider(lp)
-            telemetry.tracer_provider, telemetry.logger_provider = tp, lp
+            metrics.set_meter_provider(mp)
             telemetry.owns_providers = True
+        telemetry.tracer_provider, telemetry.logger_provider, telemetry.meter_provider = tp, lp, mp
 
         otel_level = logging.getLevelName(cfg.log_level)
         levels.append(otel_level)

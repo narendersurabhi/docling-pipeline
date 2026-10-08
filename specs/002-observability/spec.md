@@ -22,8 +22,8 @@ logs tied to those spans. Telemetry is exported to the console or any OTLP backe
 
 ## Out of scope
 
-Metrics (counters and histograms), HTTP client auto-instrumentation, and profiling. Candidates
-for a later spec.
+HTTP client auto-instrumentation and profiling. Metrics are covered by
+[spec 003](../003-metrics/spec.md).
 
 ---
 
