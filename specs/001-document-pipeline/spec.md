@@ -115,4 +115,5 @@ Markdown fixtures and the hierarchical chunker. Model-dependent tests are marked
 
 ### NFR-003: Spec traceability
 Every requirement ID in this spec is covered by at least one test tagged
-`@pytest.mark.spec(...)`, and CI enforces it.
+`@pytest.mark.spec(...)`. This is enforced on every commit by the `spec-traceability` git hook
+(originally hosted CI, moved to local hooks by constitution VIII).

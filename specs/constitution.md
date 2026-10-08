@@ -11,7 +11,8 @@ the spec is the source of truth and the code is the bug.
 ## II. Every requirement is testable and tested
 Each requirement has a stable ID (`FR-###` functional, `NFR-###` non-functional) and
 acceptance criteria written as Given / When / Then. Every ID is referenced by at least one
-test via `@pytest.mark.spec("FR-###")`. `tests/test_spec_traceability.py` enforces this in CI,
+test via `@pytest.mark.spec("FR-###")`. `tests/test_spec_traceability.py` enforces this in the
+git hooks,
 and also rejects tests that cite IDs that don't exist.
 
 ## III. Requirement IDs are permanent
@@ -39,8 +40,14 @@ models are marked `slow` and are opt-in.
 
 ## VIII. One feature, one branch
 Each spec is developed and tested on its own branch, `spec/NNN-short-name`, matching its
-`specs/NNN-short-name/` folder, and reaches `main` only through a pull request whose CI is
-green. `main` is protected: no direct pushes, no force-pushes. Bug fixes use `fix/…`,
-tooling `chore/…`, and docs-only changes `docs/…`. A feature branch can't merge while its
-`tasks.md` has unchecked tasks. The `branch-policy` CI job enforces the naming, the spec
-folder and the tasks.
+`specs/NNN-short-name/` folder, and reaches `main` only through a pull request. `main` is
+protected on GitHub: PR required, no direct pushes, no force-pushes. Bug fixes use `fix/…`,
+tooling `chore/…`, and docs-only changes `docs/…`.
+
+Quality gates run **locally as git hooks** (`.pre-commit-config.yaml`), not in hosted CI:
+- every commit: branch policy, lint/format, lockfile, spec traceability
+- every push: the full offline test suite
+
+A PR is opened only after `scripts/branch_policy.py --ready` passes (all tasks ticked).
+Bypassing hooks (`--no-verify`) is not allowed. Nothing server-side re-checks, so the hooks
+are the gate.

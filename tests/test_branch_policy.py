@@ -23,9 +23,19 @@ def test_valid_branches(repo, branch):
     assert violations(branch, ["README.md"], repo) == []
 
 
-@pytest.mark.parametrize("branch", ["main", "feature/x", "spec/search-api", "Spec/004-x", "fix/"])
+@pytest.mark.parametrize("branch", ["feature/x", "spec/search-api", "Spec/004-x", "fix/"])
 def test_invalid_branch_names(repo, branch):
     assert violations(branch, [], repo)
+
+
+@pytest.mark.parametrize("branch", ["main", "master"])
+def test_commits_to_protected_branches_rejected(repo, branch):
+    [problem] = violations(branch, [], repo)
+    assert "don't commit to" in problem
+
+
+def test_detached_head_is_allowed(repo):
+    assert violations("HEAD", ["src/x.py"], repo) == []
 
 
 def test_spec_branch_needs_its_spec_folder(repo):
@@ -40,9 +50,10 @@ def test_spec_branch_needs_all_spec_files(repo):
     ]
 
 
-def test_spec_branch_with_unfinished_tasks_cannot_merge(repo):
+def test_unfinished_tasks_allowed_while_developing_but_not_when_ready(repo):
     (repo / "specs" / "004-search-api" / "tasks.md").write_text("- [x] T001\n- [ ] T002 wire CLI\n")
-    [problem] = violations("spec/004-search-api", [], repo)
+    assert violations("spec/004-search-api", [], repo) == []
+    [problem] = violations("spec/004-search-api", [], repo, ready=True)
     assert "T002 wire CLI" in problem
 
 
@@ -56,4 +67,4 @@ def test_existing_specs_satisfy_policy():
     """Every existing spec folder would pass as its own feature branch."""
     root = Path(__file__).parent.parent
     for spec_dir in sorted((root / "specs").glob("[0-9][0-9][0-9]-*")):
-        assert violations(f"spec/{spec_dir.name}", []) == [], spec_dir.name
+        assert violations(f"spec/{spec_dir.name}", [], ready=True) == [], spec_dir.name

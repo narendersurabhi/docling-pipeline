@@ -26,5 +26,5 @@ Tasks are listed in order. Each one names the requirement IDs it satisfies.
 - [x] T017 `cli.py` (FR-010)
 
 ## Delivery
-- [x] T018 CI workflow: ruff and pytest under uv (NFR-001, NFR-003)
+- [x] T018 CI workflow: ruff and pytest under uv (NFR-001, NFR-003). *Later replaced by local git hooks (constitution VIII)*
 - [x] T019 README and example config
