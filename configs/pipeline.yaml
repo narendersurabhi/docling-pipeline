@@ -25,3 +25,16 @@ chunking:
   tokenizer: sentence-transformers/all-MiniLM-L6-v2
   max_tokens: 512
   merge_peers: true
+
+observability:             # spec 002: OpenTelemetry traces, spans and correlated logs
+  enabled: true
+  service_name: docling-pipeline
+  environment: dev
+  # Leave the exporters unset so the standard env vars apply ($OTEL_TRACES_EXPORTER /
+  # $OTEL_LOGS_EXPORTER, default none). Setting them here overrides the env vars.
+  # traces_exporter: otlp   # none | console | otlp
+  # logs_exporter: otlp     # none | console | otlp
+  otlp_endpoint: null       # e.g. http://localhost:4318; null = $OTEL_EXPORTER_OTLP_ENDPOINT
+  otlp_timeout_s: 10
+  sample_ratio: 1.0
+  log_level: INFO           # minimum level exported via OpenTelemetry

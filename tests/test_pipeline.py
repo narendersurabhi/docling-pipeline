@@ -2,14 +2,13 @@ import json
 from pathlib import Path
 
 import pytest
-from docling.document_converter import DocumentConverter
 from docling_core.types.doc import DoclingDocument
+from helpers import FailingConverter, make_config
 
 from docling_pipeline.config import (
     ChunkerType,
     ChunkingConfig,
     ExportFormat,
-    PipelineConfig,
 )
 from docling_pipeline.pipeline import DocumentPipeline
 
@@ -24,31 +23,6 @@ CHUNK_FIELDS = {
     "doc_item_refs",
     "labels",
 }
-
-
-def make_config(inputs: list[Path], out: Path, **overrides) -> PipelineConfig:
-    """Offline config: model-free formats and the structure-only chunker (NFR-002)."""
-    return PipelineConfig(
-        input_paths=[str(p) for p in inputs],
-        output_dir=out,
-        chunking=ChunkingConfig(chunker=ChunkerType.HIERARCHICAL),
-        **overrides,
-    )
-
-
-class FailingConverter:
-    """Wraps a real converter but raises for sources whose name contains `fail_on`."""
-
-    def __init__(self, fail_on: str):
-        self.fail_on = fail_on
-        self.inner = DocumentConverter()
-        self.calls: list[str] = []
-
-    def convert(self, source, **kwargs):
-        self.calls.append(str(source))
-        if self.fail_on in str(source):
-            raise RuntimeError("simulated parser crash")
-        return self.inner.convert(source, **kwargs)
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -158,6 +132,8 @@ def test_meta_and_manifest(corpus: Path, tmp_path: Path):
         "num_chunks",
         "seconds",
         "errors",
+        "trace_id",
+        "span_id",
     }
     assert meta["status"] == "success"
     assert set(meta["files"]) == {"markdown", "json", "chunks"}

@@ -26,6 +26,12 @@ swallowed silently.
 The project runs in a uv-managed virtual environment with a uv-managed interpreter
 (`python-preference = "only-managed"`). `uv.lock` is committed.
 
-## VI. Fast, offline tests
+## VI. Observable from day one
+Every unit of work emits OpenTelemetry traces with a span per meaningful stage, and logs are
+correlated with those spans (`trace_id`/`span_id`). New features extend the span tree and
+the logs in the same PR that adds the behaviour, and tests assert on the emitted telemetry.
+Telemetry failures must never break the pipeline.
+
+## VII. Fast, offline tests
 The default test suite must not download ML models or reach the network. Tests that need
 models are marked `slow` and are opt-in.

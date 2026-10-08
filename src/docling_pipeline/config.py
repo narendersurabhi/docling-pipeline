@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 from pathlib import Path
 
@@ -43,6 +44,37 @@ class ChunkingConfig(BaseModel):
     merge_peers: bool = True
 
 
+class TelemetryExporter(StrEnum):
+    NONE = "none"
+    CONSOLE = "console"
+    OTLP = "otlp"
+
+
+def _exporter_from_env(var: str) -> TelemetryExporter:
+    value = os.environ.get(var, "none").strip().lower()
+    return (
+        TelemetryExporter(value)
+        if value in TelemetryExporter._value2member_map_
+        else (TelemetryExporter.NONE)
+    )
+
+
+class ObservabilityConfig(BaseModel):
+    enabled: bool = True
+    service_name: str = "docling-pipeline"
+    environment: str = "dev"
+    traces_exporter: TelemetryExporter = Field(
+        default_factory=lambda: _exporter_from_env("OTEL_TRACES_EXPORTER")
+    )
+    logs_exporter: TelemetryExporter = Field(
+        default_factory=lambda: _exporter_from_env("OTEL_LOGS_EXPORTER")
+    )
+    otlp_endpoint: str | None = None
+    otlp_timeout_s: float = Field(10.0, gt=0)
+    sample_ratio: float = Field(1.0, ge=0.0, le=1.0)
+    log_level: str = Field("INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+
+
 class PipelineConfig(BaseModel):
     input_paths: list[str] = Field(default_factory=list)
     output_dir: Path = Path("output")
@@ -54,6 +86,7 @@ class PipelineConfig(BaseModel):
     raise_on_error: bool = False
     conversion: ConversionConfig = Field(default_factory=ConversionConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> PipelineConfig:

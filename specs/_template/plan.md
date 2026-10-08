@@ -19,6 +19,7 @@ Implements [spec.md](spec.md). Checked against [constitution](../constitution.md
 - [ ] III. No IDs renumbered or reused
 - [ ] IV. Failures isolated and recorded
 - [ ] V. Dependencies pinned in uv.lock
-- [ ] VI. Default tests stay offline
+- [ ] VI. New stages emit spans and correlated logs, asserted in tests
+- [ ] VII. Default tests stay offline
 
 ## Risks

@@ -82,7 +82,8 @@ Each source is converted to a `DoclingDocument` with Docling's `DocumentConverte
 
 ### FR-007: Per-document metadata and run manifest
 - After each document, `<output_dir>/<name>/meta.json` records `source, name, status,
-  output_dir, files, num_pages, num_chunks, seconds, errors`.
+  output_dir, files, num_pages, num_chunks, seconds, errors`, plus `trace_id, span_id`
+  *(amended by [spec 002 FR-013](../002-observability/spec.md#fr-013-correlation-ids-in-outputs))*.
 - After the run, `<output_dir>/manifest.json` records `started_at`, `finished_at` (ISO-8601
   UTC), `output_dir`, `counts` per status, and a `documents` array.
 

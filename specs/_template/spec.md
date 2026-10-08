@@ -25,6 +25,10 @@
 - **Given** <context>, **when** <action>, **then** <observable outcome>.
 - [NEEDS CLARIFICATION: <open question>]
 
+## Observability
+<!-- Required (constitution VI). Which spans does this feature add or change, what are their
+     attributes, and what logs does it emit? Each needs an FR with a test. -->
+
 ## Non-functional requirements
 
 ### NFR-XXX: <Requirement title>

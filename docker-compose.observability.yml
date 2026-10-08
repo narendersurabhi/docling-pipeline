@@ -1,0 +1,11 @@
+# Local observability backend: OTLP collector + Tempo (traces) + Loki (logs) + Grafana UI.
+#   docker compose -f docker-compose.observability.yml up -d
+#   uv run docling-pipeline run data/input --telemetry otlp --otlp-endpoint http://localhost:4318
+#   open http://localhost:3000  (Explore -> Tempo for traces, Loki for logs)
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.33.1
+    ports:
+      - "3000:3000" # Grafana
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP (used by this project)

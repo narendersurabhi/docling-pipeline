@@ -25,6 +25,7 @@ inputs ──► sources.discover ──► DocumentPipeline.process (per source
 | `chunking.py` | `build_chunker()`, `iter_chunks()`, `write_chunks()` | FR-005 |
 | `pipeline.py` | `DocumentPipeline.process/run`, `DocumentResult`, `RunSummary` | FR-006, FR-007, FR-008 |
 | `cli.py` | Typer app; merges CLI flags over YAML config | FR-010 |
+| `observability.py` | OpenTelemetry setup (see [plan 002](../002-observability/plan.md)) | FR-011–FR-015 |
 
 ## Key decisions
 

@@ -12,22 +12,20 @@ from rich.logging import RichHandler
 from rich.table import Table
 
 from docling_pipeline import __version__
-from docling_pipeline.config import ChunkerType, ExportFormat, PipelineConfig
+from docling_pipeline.config import ChunkerType, ExportFormat, PipelineConfig, TelemetryExporter
+from docling_pipeline.observability import setup_telemetry
 from docling_pipeline.pipeline import DocumentPipeline, DocumentResult
 
 app = typer.Typer(add_completion=False, help="Batch document pipeline built on Docling.")
 console = Console()
+_state = {"console_level": logging.WARNING}
 
 
 @app.callback()
 def main(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging.")] = False,
 ) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.WARNING,
-        format="%(message)s",
-        handlers=[RichHandler(console=console, show_path=False)],
-    )
+    _state["console_level"] = logging.DEBUG if verbose else logging.WARNING
 
 
 @app.command()
@@ -62,6 +60,13 @@ def run(
         bool | None,
         typer.Option("--skip-existing/--no-skip-existing", help="Skip already-converted docs."),
     ] = None,
+    telemetry: Annotated[
+        TelemetryExporter | None,
+        typer.Option(help="Exporter for both traces and logs."),
+    ] = None,
+    otlp_endpoint: Annotated[
+        str | None, typer.Option(help="OTLP/HTTP base URL, e.g. http://localhost:4318.")
+    ] = None,
 ) -> None:
     """Convert documents, export them, and chunk them for retrieval."""
     cfg = PipelineConfig.from_yaml(config) if config else PipelineConfig()
@@ -85,6 +90,11 @@ def run(
         cfg.chunking.max_tokens = max_tokens
     if skip_existing is not None:
         cfg.skip_existing = skip_existing
+    if telemetry is not None:
+        cfg.observability.traces_exporter = telemetry
+        cfg.observability.logs_exporter = telemetry
+    if otlp_endpoint is not None:
+        cfg.observability.otlp_endpoint = otlp_endpoint
     cfg = PipelineConfig.model_validate(cfg.model_dump())
 
     if not cfg.input_paths:
@@ -94,7 +104,15 @@ def run(
         style = "green" if r.ok else ("yellow" if r.status == "skipped" else "red")
         console.print(f"[{style}]{r.status:>15}[/] {r.name} ({r.seconds:.1f}s)")
 
-    summary = DocumentPipeline(cfg).run(on_result=report)
+    tel = setup_telemetry(
+        cfg.observability,
+        console_level=_state["console_level"],
+        console_handler=RichHandler(console=console, show_path=False),
+    )
+    try:
+        summary = DocumentPipeline(cfg).run(on_result=report)
+    finally:
+        tel.shutdown()
 
     table = Table(title=f"Results -> {summary.output_dir}")
     for col in ("document", "status", "pages", "chunks", "seconds"):
@@ -102,6 +120,7 @@ def run(
     for r in summary.results:
         table.add_row(r.name, r.status, str(r.num_pages), str(r.num_chunks), f"{r.seconds:.1f}")
     console.print(table)
+    console.print(f"trace_id: {summary.trace_id}")
 
     if any(r.status == "failure" for r in summary.results):
         raise typer.Exit(code=1)

@@ -11,6 +11,10 @@ dependencies = [
     "pyyaml>=6.0",
     "typer>=0.12",
     "rich>=13.7",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "opentelemetry-instrumentation-logging>=0.66b1",
 ]
 
 [project.scripts]
@@ -42,7 +46,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["scripts"]
+pythonpath = ["scripts", "tests"]
 addopts = "-m 'not slow'"
 markers = [
     "spec(*ids): requirement IDs from specs/*/spec.md that this test verifies",
